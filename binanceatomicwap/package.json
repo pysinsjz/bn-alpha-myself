@@ -1,0 +1,32 @@
+{
+  "name": "binanceatomicswap",
+  "version": "1.0.0",
+  "description": "一个在 Binance Smart Chain (BSC) 上实现原子化双向 Swap 交易的智能合约项目。该项目通过指定的代理路由器执行交易，以最小化因交易时间差导致的价格滑点损耗。",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:bsc": "hardhat run scripts/deploy.js --network bsc",
+    "deploy:testnet": "hardhat run scripts/deploy.js --network bscTestnet",
+    "verify:bsc": "hardhat verify --network bsc",
+    "verify:testnet": "hardhat verify --network bscTestnet",
+    "lint": "solhint 'contracts/**/*.sol'",
+    "lint:fix": "solhint 'contracts/**/*.sol' --fix"
+  },
+  "keywords": [
+    "blockchain",
+    "ethereum",
+    "bsc",
+    "defi",
+    "swap",
+    "atomic-swap"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
+    "@openzeppelin/contracts": "^4.9.0",
+    "dotenv": "^16.0.0",
+    "hardhat": "^2.17.0"
+  }
+}

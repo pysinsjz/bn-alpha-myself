@@ -2,9 +2,9 @@
 
 import type { Hex } from 'viem'
 import { useEffect, useState } from 'react'
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi'
-import { parseUnits } from 'viem'
-import { AlertCircle, ArrowDownUp, CheckCircle2, Loader2, Wallet, TrendingUp, TrendingDown } from 'lucide-react'
+import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useReadContract } from 'wagmi'
+import { parseUnits, maxUint256, encodeFunctionData } from 'viem'
+import { AlertCircle, ArrowDownUp, CheckCircle2, Loader2, Wallet, TrendingUp, TrendingDown, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -14,7 +14,8 @@ import { toast } from '@/components/ui/toast'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import alphaTokens from '@/constants/tokens'
-import { USDT_ADDRESS, USDC_ADDRESS, WBNB_ADDRESS } from '@/constants'
+import { USDT_ADDRESS, USDC_ADDRESS, WBNB_ADDRESS, BN_DEX_ROUTER_ADDRESS } from '@/constants'
+import { ERC20_ABI } from '@/constants/abis'
 import { buildSwapTransaction } from '@/lib/swap'
 import { isAddressEqual } from '@/lib/utils'
 import { useTokenBalance } from '@/hooks/use-token-balance'
@@ -40,6 +41,8 @@ export default function SwapTransaction() {
   const [toAmount, setToAmount] = useState('')
   const [slippage, setSlippage] = useState('0.5')
   const [isEstimating, setIsEstimating] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
+  const [needsApproval, setNeedsApproval] = useState(false)
 
   const selectedFromToken = STABLE_TOKENS.find(t => isAddressEqual(t.address, fromToken))
   const selectedToToken = alphaTokens.find(t => isAddressEqual(t.contractAddress, toToken))
@@ -54,6 +57,41 @@ export default function SwapTransaction() {
     selectedFromToken?.symbol || 'USDC',
     1000, // 每秒更新
   )
+
+  // 检查代币授权额度
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: fromToken,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: walletAddress ? [walletAddress, BN_DEX_ROUTER_ADDRESS] : undefined,
+    query: {
+      enabled: !!walletAddress && !!fromToken && !isAddressEqual(fromToken, WBNB_ADDRESS),
+    },
+  })
+
+  // 检查是否需要授权
+  useEffect(() => {
+    if (!walletAddress || !fromAmount || Number(fromAmount) <= 0) {
+      setNeedsApproval(false)
+      return
+    }
+
+    // BNB 不需要授权
+    if (isAddressEqual(fromToken, WBNB_ADDRESS)) {
+      setNeedsApproval(false)
+      return
+    }
+
+    if (selectedFromToken && allowance !== undefined) {
+      try {
+        const amount = parseUnits(fromAmount, selectedFromToken.decimals)
+        setNeedsApproval(allowance < amount)
+      }
+      catch {
+        setNeedsApproval(false)
+      }
+    }
+  }, [fromAmount, fromToken, allowance, walletAddress, selectedFromToken])
 
   // 当输入金额或实时价格变化时，自动计算输出
   useEffect(() => {
@@ -73,6 +111,50 @@ export default function SwapTransaction() {
     }
   }, [fromAmount, realtimePrice.price])
 
+  const handleApprove = async () => {
+    if (!isConnected || !walletAddress) {
+      toast.error('请先连接钱包')
+      return
+    }
+
+    if (!selectedFromToken) {
+      toast.error('请选择代币')
+      return
+    }
+
+    try {
+      setIsApproving(true)
+      
+      // 构建授权交易
+      const data = encodeFunctionData({
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [BN_DEX_ROUTER_ADDRESS, maxUint256],
+      }) as Hex
+
+      // 发送授权交易
+      const result = await sendTransaction({
+        to: fromToken,
+        data,
+      })
+
+      toast.success('授权交易已提交，等待确认...')
+      
+      // 等待交易确认
+      // 注意：这里需要等待交易确认后才能继续
+      setTimeout(() => {
+        refetchAllowance()
+      }, 3000)
+    }
+    catch (err: any) {
+      console.error('授权失败:', err)
+      toast.error(`授权失败: ${err.message || '未知错误'}`)
+    }
+    finally {
+      setIsApproving(false)
+    }
+  }
+
   const handleSwap = async () => {
     if (!isConnected || !walletAddress) {
       toast.error('请先连接钱包')
@@ -86,6 +168,12 @@ export default function SwapTransaction() {
 
     if (!selectedFromToken || !selectedToToken) {
       toast.error('请选择代币')
+      return
+    }
+
+    // 检查是否需要授权
+    if (needsApproval) {
+      toast.error('请先授权代币')
       return
     }
 
@@ -390,27 +478,45 @@ export default function SwapTransaction() {
           />
         </div>
 
-        {/* 交易按钮 */}
-        <Button
-          onClick={handleSwap}
-          disabled={!isConnected || isPending || isConfirming || !fromAmount || Number(fromAmount) <= 0}
-          className="w-full"
-          size="lg"
-        >
-          {isPending && (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              确认交易...
-            </>
-          )}
-          {isConfirming && (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              等待确认...
-            </>
-          )}
-          {!isPending && !isConfirming && '交易'}
-        </Button>
+        {/* 授权和交易按钮 */}
+        {needsApproval ? (
+          <Button
+            onClick={handleApprove}
+            disabled={!isConnected || isApproving || !fromAmount || Number(fromAmount) <= 0}
+            className="w-full"
+            size="lg"
+          >
+            {isApproving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                授权中...
+              </>
+            ) : (
+              `授权 ${selectedFromToken?.symbol || ''}`
+            )}
+          </Button>
+        ) : (
+          <Button
+            onClick={handleSwap}
+            disabled={!isConnected || isPending || isConfirming || !fromAmount || Number(fromAmount) <= 0}
+            className="w-full"
+            size="lg"
+          >
+            {isPending && (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                确认交易...
+              </>
+            )}
+            {isConfirming && (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                等待确认...
+              </>
+            )}
+            {!isPending && !isConfirming && '交易'}
+          </Button>
+        )}
 
         {/* 交易哈希 */}
         {hash && (
@@ -430,16 +536,27 @@ export default function SwapTransaction() {
           </Alert>
         )}
 
+        {/* 授权提示 */}
+        {needsApproval && (
+          <Alert className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
+            <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <AlertTitle className="text-blue-600 dark:text-blue-400">需要授权</AlertTitle>
+            <AlertDescription className="text-blue-600 dark:text-blue-400 text-xs">
+              首次交易该代币需要先授权给币安 DEX Router，这是一次性操作。
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* 警告信息 */}
         <Alert variant="destructive" className="bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800">
           <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-          <AlertTitle className="text-yellow-600 dark:text-yellow-400">重要提示</AlertTitle>
+          <AlertTitle className="text-yellow-600 dark:text-yellow-400">⚠️ 重要提示</AlertTitle>
           <AlertDescription className="text-yellow-600 dark:text-yellow-400">
             <ul className="list-disc pl-4 space-y-1 text-xs">
-              <li>这是一个演示功能，实际交易数据构建需要根据具体的 DEX 路由器实现</li>
-              <li>请确保您理解交易的风险</li>
-              <li>建议先进行小额测试交易</li>
-              <li>注意滑点和价格影响</li>
+              <li>当前交易功能使用简化的路由数据，可能导致交易失败</li>
+              <li>建议仅进行小额测试交易</li>
+              <li>实际生产环境需要集成币安聚合器 API 获取最优路由</li>
+              <li>请确保理解交易风险，注意滑点和价格影响</li>
             </ul>
           </AlertDescription>
         </Alert>

@@ -1,0 +1,94 @@
+需求标题：Solidity 智能合约：通过指定代理路由器执行原子化双向 Swap 交易 (基于提供的 ABI)
+
+目标：
+
+编写一个 Solidity 智能合约，用于在 Binance Smart Chain (BSC) 上，通过指定的Binance DEX 代理路由器合约地址 (0xb300000b72DEAEb607a12d5f54773D1C19c7028d)，执行一次单笔交易中的双向 Swap 操作（将 TokenA 兑换为 TokenB，紧接着立即将获得的 TokenB 兑换回 TokenA），以最小化因交易时间差导致的价格滑点损耗。这个合约主要用于在流动性池上进行低损耗的交易刷量或获取积分。
+
+合约将利用该代理路由器的 proxySwapV2 函数，并需要自己构造底层 Swap 的调用数据。与代理路由器的交互将通过基于提供的 ABI 定义的 Solidity 接口进行。
+
+你提供的 Binance DEX 代理路由器 ABI 信息：
+
+JSON
+
+[{"inputs":[{"internalType":"address","name":"target","type":"address"}],"name":"AddressEmptyCode","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"AddressInsufficientBalance","type":"error"},{"inputs":[],"name":"ApproveFailed","type":"error"},{"inputs":[],"name":"FailedInnerCall","type":"error"},{"inputs":[{"internalType":"uint256","name":"fee","type":"uint256"}],"name":"InvalidFeeValue","type":"error"},{"inputs":[{"internalType":"address","name":"router","type":"address"}],"name":"InvalidRouter","type":"error"},{"inputs":[{"internalType":"uint256","name":"minReturnAmt","type":"uint256"},{"internalType":"uint256","name":"result","type":"uint256"}],"name":"MinReturnNotReached","type":"error"},{"inputs":[],"name":"OnlyContractOwner","type":"error"},{"inputs":[{"internalType":"address","name":"token","type":"address"}],"name":"SafeERC20FailedOperation","type":"error"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"token","type":"address"},{"indexed":false,"internalType":"address","name":"recipient","indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"FeeCollected","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":true,"internalType":"address[]","name":"router","type":"address[]"}],"name":"RouterAllowed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":true,"internalType":"address[]","name":"router","type":"address[]"}],"name":"RouterDenied","type":"event"},{"inputs":[{"internalType":"address[]","name":"router","type":"address[]"}],"name":"addRouters","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"getRouterList","outputs":[{"internalType":"address[]","name":"","type":"address[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"router","type":"address"},{"internalType":"uint256","name":"fromTokenWithFee","type":"uint256"},{"internalType":"uint256","name":"fromAmt","type":"uint256"},{"internalType":"uint256","name":"toTokenWithFee","type":"uint256"},{"internalType":"bytes","name":"callData","type":"bytes"}],"name":"proxySwap","outputs":[],"stateMutability":"payable","type":"function"},{"inputs":[{"internalType":"address","name":"router","type":"address"},{"internalType":"uint256","name":"fromTokenWithFee","type":"uint256"},{"internalType":"uint256","name":"fromAmt","type":"uint256"},{"internalType":"uint256","name":"toTokenWithFee","type":"uint256"},{"internalType":"uint256","name":"minReturnAmt","type":"uint256"},{"internalType":"bytes","name":"callData","type":"bytes"}],"name":"proxySwapV2","outputs":[],"stateMutability":"payable","type":"function"},{"inputs":[{"internalType":"address[]","name":"router","type":"address[]"}],"name":"removeRouters","outputs":[],"stateMutability":"nonpayable","type":"function"}]
+技术栈：
+
+语言：Solidity (使用最新稳定版本，如 ^0.8.0 或更高)。请参考官方文档：https://docs.soliditylang.org/
+链：Binance Smart Chain (BSC)。
+交互对象：
+指定的 Binance DEX 代理路由器合约 (0xb300000b72DEAEb607a12d5f54773D1C19c7028d)，通过基于提供的 ABI 定义的 Solidity 接口进行交互。
+底层的 DEX 路由器合约（假设是标准的 PancakeSwap V2 Router 0x10ED43C718714eb63d5aA57B78B54704E256024E），用于构造底层 Swap 的调用数据。
+
+核心功能描述：
+
+定义代理路由器接口:
+根据上面提供的 ABI，定义一个 Solidity 接口（例如 IBinanceProxyRouter），其中至少包含 proxySwapV2 函数的签名，以及相关的 Error 和 Event 定义（可选但推荐）。
+
+预设路由器地址:
+在合约中定义一个常量，存储指定的 Binance DEX 代理路由器地址：0xb300000b72DEAEb607a12d5f54773D1C19c7028d。请参考其实现合约代码以了解其内部逻辑和参数使用：https://bscscan.com/address/0xb8bb1ffb166d2536e92749eb1aaf8cac07456281#code
+在合约中定义一个常量，存储底层 DEX 路由器地址，假设使用标准的 PancakeSwap V2 Router 地址：0x10ED43C718714eb63d5aA57B78B54704E256024E。请参考其验证的代码和 ABI：https://bscscan.com/address/0x10ED43C718714eb63d5aA57B78B54704E256024E#code
+
+主执行函数 (executeAtomicSwapPair 或类似名称):
+这个函数是外部可调用的。
+函数需要接收以下参数：
+tokenA: 交易的起始代币（例如 USDT, WBNB）的合约地址。请参考 ERC20 代币标准：https://docs.openzeppelin.com/contracts/4.x/api/token/erc20
+amountAIn: 用户希望用作起始的 TokenA 数量。
+tokenB: 中间代币（例如目标 Alpha Token）的合约地址。
+amountBMinOut: 第一次 Swap (A -> B) 期望通过代理路由器获得的 TokenB 的最小数量，用于控制滑点。
+amountAFinalMinOut: 第二次 Swap (B -> A) 期望通过代理路由器获得的最终 TokenA 的最小数量，用于控制最终的总滑点。
+函数逻辑流程应如下：
+接收 TokenA: 通过 transferFrom 从调用者地址拉取 amountAIn 数量的 TokenA（需要用户提前授权给你的合约）。
+授权代理路由器: 合约需要授权指定的 Binance DEX 代理路由器地址 花费合约自身持有的 TokenA (amountAIn 数量）。
+执行第一次 Swap (A -> B) 通过代理:
+构造底层调用数据: 使用底层 PancakeSwap V2 Router 接口（例如 IPancakeSwapV2Router02），构造调用 swapExactTokensForTokens 函数的ABI 编码数据。参数为：amountAIn, amountBMinOut (这里是底层 Swap 检查的最小返回数量), [tokenA, tokenB], address(this) (Swap 结果发送回本合约), block.timestamp + 容忍度 (确保交易在一段时间内有效，例如 300 秒)。请参考 Solidity 关于 abi.encodeCall 的用法。
+调用代理路由器的 proxySwapV2: 通过之前定义的代理路由器接口调用 0xb300... 合约的 proxySwapV2 函数，参数为：
+router: 底层 PancakeSwap V2 Router 地址 (0x10ED...)。
+fromTokenWithFee: tokenA 地址 (假设此参数接收 token 地址，如果代理路由器有特殊编码要求，可能需要调整)。
+fromAmt: amountAIn.
+toTokenWithFee: tokenB 地址 (假设此参数接收 token 地址)。
+minReturnAmt: amountBMinOut (这里是代理层检查的最小返回数量)。
+callData: 上一步构造的底层 Swap 调用编码数据。
+（注意：proxySwapV2 是 payable 的，如果 tokenA 是 WBNB (Wrapped BNB)，需要处理发送 BNB。请参考 WBNB 合约地址 0xbb4CdB9CBD36B01bD1cBaEBF2De08d9173b095Pr）。
+获取获得的 TokenB 数量: 第一次 proxySwapV2 调用完成后，需要获取合约当前持有的 TokenB 的数量。
+授权代理路由器 (TokenB -> TokenA): 合约需要授权指定的 Binance DEX 代理路由器地址 花费刚才获得的 TokenB 数量。
+执行第二次 Swap (B -> A) 通过代理:
+构造底层调用数据: 使用底层 PancakeSwap V2 Router 接口，构造调用 swapExactTokensForTokens 函数的ABI 编码数据。参数为：获得的 TokenB 数量, amountAFinalMinOut (这里是底层 Swap 检查的最小返回数量), [tokenB, tokenA], address(this) (Swap 结果发送回本合约), block.timestamp + 容忍度。
+调用代理路由器的 proxySwapV2: 通过代理路由器接口调用 0xb300... 合约的 proxySwapV2 函数，参数为：
+router: 底层 PancakeSwap V2 Router 地址 (0x10ED...)。
+fromTokenWithFee: tokenB 地址。
+fromAmt: 获得的 TokenB 数量。
+toTokenWithFee: tokenA 地址。
+minReturnAmt: amountAFinalMinOut。
+callData: 上一步构造的底层 Swap 调用编码数据。
+返回最终 TokenA: 第二次 proxySwapV2 调用完成后，将合约最终持有的 TokenA 数量（减去初始收到的 amountAIn，即净余额）发送回函数的调用者地址。
+
+代币接口 (IERC20):
+导入和使用标准的 ERC20 代币接口。
+
+路由器接口:
+定义基于提供的 ABI 的 Binance DEX 代理路由器的接口。
+定义或导入底层 PancakeSwap V2 Router 的接口 (IPancakeSwapV2Router02)，用于构造底层 Swap 的调用数据。
+
+安全考虑 (基本):
+正确处理返回值和错误。
+使用正确的最小接收数量参数。
+添加紧急提取函数。
+遵循 Solidity 安全最佳实践。
+
+事件 (可选但推荐):
+记录交易信息。
+
+期望输出：
+
+一个完整的 Solidity 智能合约代码 (.sol 文件)。
+合约代码清晰、有注释，符合规范。
+代码中应包含基于提供 ABI 定义的代理路由器接口。
+代码应使用硬编码的代理路由器地址 0xb300... 和底层路由器地址 0x10ED...。
+
+注意事项：
+
+底层路由器接口假设: 代码将基于 PancakeSwap V2 Router 的标准接口来编码 callData。如果实际代理路由器与底层路由器的交互方式有特殊要求，代码需要调整。
+fromTokenWithFee / toTokenWithFee 参数: 代码将假设 proxySwapV2 的 fromTokenWithFee 和 toTokenWithFee 参数直接接收代币地址。如果这些参数有特殊编码，代码需要修改。
+proxySwapV2 的 Payable 性: 如果涉及 WBNB (BNB 的包装代币)，需要确保合约能够接收和发送 BNB，并在调用 proxySwapV2 时发送足够的 BNB。
+时效性: 底层 Swap 调用数据中的时间戳应考虑一定的容忍度，防止因区块延迟导致交易失效。
+务必进行彻底的代码审计和测试。
