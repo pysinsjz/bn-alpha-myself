@@ -6,3 +6,10 @@ export const USDT_ADDRESS = '0x55d398326f99059fF775485246999027B3197955' as Hex
 export const USDC_ADDRESS = '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d' as Hex
 export const USD1_ADDRESS = '0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d' as Hex
 export const WBNB_ADDRESS = '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c' as Hex
+
+// PancakeSwap V2 Router 地址
+export const PANCAKESWAP_V2_ROUTER_ADDRESS = '0x10ED43C718714eb63d5aA57B78B54704E256024E' as Hex
+
+// 币安实际使用的路由器地址（从链上数据解析）
+export const BINANCE_ACTUAL_ROUTER_ADDRESS = '0xce57c3984a549f28b5173ebae96d3e662f3760a7' as Hex
+

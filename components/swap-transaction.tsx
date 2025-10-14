@@ -16,7 +16,10 @@ import { Badge } from '@/components/ui/badge'
 import alphaTokens from '@/constants/tokens'
 import { USDT_ADDRESS, USDC_ADDRESS, WBNB_ADDRESS, BN_DEX_ROUTER_ADDRESS } from '@/constants'
 import { ERC20_ABI } from '@/constants/abis'
-import { buildSwapTransaction } from '@/lib/swap'
+import { buildSwapTransaction, buildRealSwapTransaction } from '@/lib/swap'
+import { getAggregatorQuote, parseTransactionData } from '@/lib/aggregator-api'
+import { getLifiQuote, getLifiRoutes, executeLifiRoute, formatAmountForLifi } from '@/lib/lifi-api'
+import { getSimpleLifiQuote, formatAmountToWei } from '@/lib/lifi-simple'
 import { isAddressEqual } from '@/lib/utils'
 import { useTokenBalance } from '@/hooks/use-token-balance'
 import { useRealtimePrice } from '@/hooks/use-realtime-price'
@@ -43,6 +46,8 @@ export default function SwapTransaction() {
   const [isEstimating, setIsEstimating] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
   const [needsApproval, setNeedsApproval] = useState(false)
+  const [useAggregator, setUseAggregator] = useState(false)
+  const [useLifi, setUseLifi] = useState(true) // 默认使用 LI.FI
 
   const selectedFromToken = STABLE_TOKENS.find(t => isAddressEqual(t.address, fromToken))
   const selectedToToken = alphaTokens.find(t => isAddressEqual(t.contractAddress, toToken))
@@ -58,12 +63,14 @@ export default function SwapTransaction() {
     1000, // 每秒更新
   )
 
-  // 检查代币授权额度
+  // 检查代币授权额度 - 根据选择的模式使用不同的路由器地址
+  const routerAddress = useLifi ? BN_DEX_ROUTER_ADDRESS : BN_DEX_ROUTER_ADDRESS
+  
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
     address: fromToken,
     abi: ERC20_ABI,
     functionName: 'allowance',
-    args: walletAddress ? [walletAddress, BN_DEX_ROUTER_ADDRESS] : undefined,
+    args: walletAddress ? [walletAddress, routerAddress] : undefined,
     query: {
       enabled: !!walletAddress && !!fromToken && !isAddressEqual(fromToken, WBNB_ADDRESS),
     },
@@ -129,7 +136,7 @@ export default function SwapTransaction() {
       const data = encodeFunctionData({
         abi: ERC20_ABI,
         functionName: 'approve',
-        args: [BN_DEX_ROUTER_ADDRESS, maxUint256],
+        args: [routerAddress, maxUint256],
       }) as Hex
 
       // 发送授权交易
@@ -178,14 +185,62 @@ export default function SwapTransaction() {
     }
 
     try {
-      const tx = buildSwapTransaction({
-        fromToken,
-        toToken,
-        fromAmount,
-        fromDecimals: selectedFromToken.decimals,
-        minReturnAmount: toAmount,
-        slippage: Number(slippage),
-      })
+      let tx
+
+      if (useLifi) {
+        // 使用简化的 LI.FI API
+        const formattedAmount = formatAmountToWei(fromAmount, selectedFromToken.decimals)
+
+        // 获取 LI.FI 报价
+        const lifiQuote = await getSimpleLifiQuote({
+          fromToken,
+          toToken,
+          amount: formattedAmount,
+          userAddress: walletAddress,
+        })
+
+        if (!lifiQuote) {
+          toast.error('无法获取 LI.FI 报价，请检查网络连接')
+          return
+        }
+
+        // 使用 LI.FI 返回的交易数据
+        tx = {
+          to: lifiQuote.to,
+          data: lifiQuote.data,
+          value: BigInt(lifiQuote.value),
+        }
+      } else if (useAggregator) {
+        // 使用聚合器获取真实的路由数据
+        const quote = await getAggregatorQuote({
+          fromToken,
+          toToken,
+          amount: fromAmount,
+          slippage: Number(slippage),
+        })
+
+        if (!quote || quote.data === '0x') {
+          toast.error('无法获取聚合器报价，请尝试关闭聚合器模式')
+          return
+        }
+
+        // 使用聚合器返回的数据
+        tx = {
+          to: BN_DEX_ROUTER_ADDRESS,
+          data: quote.data,
+          value: BigInt(quote.value),
+        }
+      } else {
+        // 使用真实链上数据格式
+        tx = buildRealSwapTransaction({
+          fromToken,
+          toToken,
+          fromAmount,
+          fromDecimals: selectedFromToken.decimals,
+          minReturnAmount: toAmount,
+          slippage: Number(slippage),
+        })
+      }
 
       sendTransaction({
         to: tx.to,
@@ -478,6 +533,65 @@ export default function SwapTransaction() {
           />
         </div>
 
+        {/* 交易模式选择 */}
+        <div className="space-y-3">
+          <label className="text-sm font-medium">交易模式</label>
+          
+          {/* LI.FI 模式 */}
+          <div className="flex items-center space-x-2">
+            <input
+              type="radio"
+              id="useLifi"
+              name="swapMode"
+              checked={useLifi}
+              onChange={() => {
+                setUseLifi(true)
+                setUseAggregator(false)
+              }}
+              className="rounded border-gray-300"
+            />
+            <label htmlFor="useLifi" className="text-sm font-medium">
+              LI.FI 聚合器（推荐）
+            </label>
+          </div>
+
+          {/* 自定义聚合器模式 */}
+          <div className="flex items-center space-x-2">
+            <input
+              type="radio"
+              id="useAggregator"
+              name="swapMode"
+              checked={useAggregator}
+              onChange={() => {
+                setUseAggregator(true)
+                setUseLifi(false)
+              }}
+              className="rounded border-gray-300"
+            />
+            <label htmlFor="useAggregator" className="text-sm font-medium">
+              自定义聚合器模式
+            </label>
+          </div>
+
+          {/* 简化模式 */}
+          <div className="flex items-center space-x-2">
+            <input
+              type="radio"
+              id="useSimple"
+              name="swapMode"
+              checked={!useLifi && !useAggregator}
+              onChange={() => {
+                setUseLifi(false)
+                setUseAggregator(false)
+              }}
+              className="rounded border-gray-300"
+            />
+            <label htmlFor="useSimple" className="text-sm font-medium">
+              简化模式（测试用）
+            </label>
+          </div>
+        </div>
+
         {/* 授权和交易按钮 */}
         {needsApproval ? (
           <Button
@@ -547,16 +661,17 @@ export default function SwapTransaction() {
           </Alert>
         )}
 
-        {/* 警告信息 */}
-        <Alert variant="destructive" className="bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800">
-          <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-          <AlertTitle className="text-yellow-600 dark:text-yellow-400">⚠️ 重要提示</AlertTitle>
-          <AlertDescription className="text-yellow-600 dark:text-yellow-400">
+        {/* 交易信息 */}
+        <Alert className="bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800">
+          <AlertCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+          <AlertTitle className="text-green-600 dark:text-green-400">🌉 LI.FI 集成</AlertTitle>
+          <AlertDescription className="text-green-600 dark:text-green-400">
             <ul className="list-disc pl-4 space-y-1 text-xs">
-              <li>当前交易功能使用简化的路由数据，可能导致交易失败</li>
-              <li>建议仅进行小额测试交易</li>
-              <li>实际生产环境需要集成币安聚合器 API 获取最优路由</li>
-              <li>请确保理解交易风险，注意滑点和价格影响</li>
+              <li><strong>LI.FI 模式</strong>：开源跨链聚合器，支持多链交易和桥接</li>
+              <li><strong>支持链</strong>：BSC、Ethereum、Polygon、Arbitrum、Optimism 等</li>
+              <li><strong>功能</strong>：DEX 聚合、跨链桥接、最优路由选择</li>
+              <li><strong>API 文档</strong>：<a href="https://docs.li.fi/sdk/chains-tools" target="_blank" rel="noopener noreferrer" className="underline">docs.li.fi</a></li>
+              <li>支持滑点保护，自动选择最优价格和路由</li>
             </ul>
           </AlertDescription>
         </Alert>
