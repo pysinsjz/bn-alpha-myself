@@ -5,7 +5,10 @@ import { BN_DEX_ROUTER_ADDRESS } from '@/constants'
 /**
  * 构建代币授权交易
  */
-export function buildApproveTransaction(tokenAddress: Hex, amount: bigint) {
+export function buildApproveTransaction(tokenAddress: Hex, amount: bigint): {
+  to: Hex
+  data: Hex
+} {
   const data = encodeFunctionData({
     abi: erc20Abi,
     functionName: 'approve',
@@ -36,7 +39,11 @@ export function buildSwapTransaction({
   fromDecimals: number
   minReturnAmount: string
   slippage?: number
-}) {
+}): {
+  to: Hex
+  data: Hex
+  value: bigint
+} {
   // 将金额转换为 bigint
   const amount = parseUnits(fromAmount, fromDecimals)
   const minReturn = parseUnits(minReturnAmount, fromDecimals)

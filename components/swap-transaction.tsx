@@ -4,7 +4,7 @@ import type { Hex } from 'viem'
 import { useEffect, useState } from 'react'
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi'
 import { parseUnits } from 'viem'
-import { AlertCircle, ArrowDownUp, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertCircle, ArrowDownUp, CheckCircle2, Loader2, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,7 @@ import alphaTokens from '@/constants/tokens'
 import { USDT_ADDRESS, USDC_ADDRESS, WBNB_ADDRESS } from '@/constants'
 import { buildSwapTransaction, estimateSwapOutput } from '@/lib/swap'
 import { isAddressEqual } from '@/lib/utils'
+import { useTokenBalance } from '@/hooks/use-token-balance'
 
 const STABLE_TOKENS = [
   { address: USDT_ADDRESS, symbol: 'USDT', decimals: 18 },
@@ -30,7 +31,7 @@ export default function SwapTransaction() {
   })
 
   const [fromToken, setFromToken] = useState<Hex>(USDT_ADDRESS)
-  const [toToken, setToToken] = useState<Hex>(alphaTokens[0]?.contractAddress || '' as Hex)
+  const [toToken, setToToken] = useState<Hex>(alphaTokens[0]?.contractAddress || USDT_ADDRESS)
   const [fromAmount, setFromAmount] = useState('')
   const [toAmount, setToAmount] = useState('')
   const [slippage, setSlippage] = useState('0.5')
@@ -38,6 +39,10 @@ export default function SwapTransaction() {
 
   const selectedFromToken = STABLE_TOKENS.find(t => isAddressEqual(t.address, fromToken))
   const selectedToToken = alphaTokens.find(t => isAddressEqual(t.contractAddress, toToken))
+
+  // 获取代币余额
+  const fromTokenBalance = useTokenBalance(fromToken, selectedFromToken?.decimals)
+  const toTokenBalance = useTokenBalance(toToken, selectedToToken?.decimals)
 
   // 当输入金额变化时，估算输出
   useEffect(() => {
@@ -118,6 +123,12 @@ export default function SwapTransaction() {
     setToAmount('')
   }
 
+  const setMaxAmount = () => {
+    if (fromTokenBalance.formatted) {
+      setFromAmount(fromTokenBalance.formatted)
+    }
+  }
+
   useEffect(() => {
     if (isSuccess) {
       toast.success('交易成功！')
@@ -149,7 +160,20 @@ export default function SwapTransaction() {
 
         {/* 源代币 */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">支付</label>
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium">支付</label>
+            {isConnected && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={setMaxAmount}
+                disabled={!fromTokenBalance.formatted || fromTokenBalance.isLoading}
+                className="h-6 px-2 text-xs"
+              >
+                最大
+              </Button>
+            )}
+          </div>
           <div className="flex gap-2">
             <Input
               type="number"
@@ -176,6 +200,18 @@ export default function SwapTransaction() {
               </SelectContent>
             </Select>
           </div>
+          {isConnected && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Wallet className="h-3 w-3" />
+              <span>
+                余额: {fromTokenBalance.isLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin inline" />
+                ) : (
+                  `${Number(fromTokenBalance.formatted).toFixed(6)} ${selectedFromToken?.symbol || ''}`
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* 交换按钮 */}
@@ -219,6 +255,18 @@ export default function SwapTransaction() {
               </SelectContent>
             </Select>
           </div>
+          {isConnected && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Wallet className="h-3 w-3" />
+              <span>
+                余额: {toTokenBalance.isLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin inline" />
+                ) : (
+                  `${Number(toTokenBalance.formatted).toFixed(6)} ${selectedToToken?.symbol || ''}`
+                )}
+              </span>
+            </div>
+          )}
           {isEstimating && (
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" />
