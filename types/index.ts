@@ -139,3 +139,6 @@ export interface Wallet {
   label: string
   disabled?: boolean
 }
+
+// 导出币安 Alpha 相关类型
+export type { BinanceAlphaToken, BinanceAggTrade, BinanceApiResponse } from './alpha'

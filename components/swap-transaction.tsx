@@ -4,18 +4,22 @@ import type { Hex } from 'viem'
 import { useEffect, useState } from 'react'
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi'
 import { parseUnits } from 'viem'
-import { AlertCircle, ArrowDownUp, CheckCircle2, Loader2, Wallet } from 'lucide-react'
+import { AlertCircle, ArrowDownUp, CheckCircle2, Loader2, Wallet, TrendingUp, TrendingDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/custom-select'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { toast } from '@/components/ui/toast'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Badge } from '@/components/ui/badge'
 import alphaTokens from '@/constants/tokens'
 import { USDT_ADDRESS, USDC_ADDRESS, WBNB_ADDRESS } from '@/constants'
-import { buildSwapTransaction, estimateSwapOutput } from '@/lib/swap'
+import { buildSwapTransaction } from '@/lib/swap'
 import { isAddressEqual } from '@/lib/utils'
 import { useTokenBalance } from '@/hooks/use-token-balance'
+import { useRealtimePrice } from '@/hooks/use-realtime-price'
+import dayjs from '@/lib/dayjs'
 
 const STABLE_TOKENS = [
   { address: USDT_ADDRESS, symbol: 'USDT', decimals: 18 },
@@ -44,38 +48,30 @@ export default function SwapTransaction() {
   const fromTokenBalance = useTokenBalance(fromToken, selectedFromToken?.decimals)
   const toTokenBalance = useTokenBalance(toToken, selectedToToken?.decimals)
 
-  // 当输入金额变化时，估算输出
+  // 获取实时价格（仅对目标代币）
+  const realtimePrice = useRealtimePrice(
+    selectedToToken ? toToken : undefined,
+    selectedFromToken?.symbol || 'USDC',
+    1000, // 每秒更新
+  )
+
+  // 当输入金额或实时价格变化时，自动计算输出
   useEffect(() => {
-    if (fromAmount && Number(fromAmount) > 0 && fromToken && toToken) {
-      estimateOutput()
+    if (fromAmount && Number(fromAmount) > 0 && realtimePrice.price) {
+      const price = Number(realtimePrice.price)
+      if (price > 0) {
+        const inputAmount = Number(fromAmount)
+        const estimatedOutput = inputAmount / price
+        setToAmount(estimatedOutput.toFixed(6))
+      }
+      else {
+        setToAmount('')
+      }
     }
     else {
       setToAmount('')
     }
-  }, [fromAmount, fromToken, toToken])
-
-  const estimateOutput = async () => {
-    if (!selectedFromToken || !selectedToToken)
-      return
-
-    setIsEstimating(true)
-    try {
-      const result = await estimateSwapOutput({
-        fromToken,
-        toToken,
-        fromAmount,
-        fromDecimals: selectedFromToken.decimals,
-      })
-      setToAmount(result.outputAmount)
-    }
-    catch (err) {
-      console.error('估算失败:', err)
-      toast.error('无法估算输出金额')
-    }
-    finally {
-      setIsEstimating(false)
-    }
-  }
+  }, [fromAmount, realtimePrice.price])
 
   const handleSwap = async () => {
     if (!isConnected || !walletAddress) {
@@ -267,13 +263,117 @@ export default function SwapTransaction() {
               </span>
             </div>
           )}
-          {isEstimating && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              正在估算...
-            </p>
-          )}
         </div>
+
+        {/* 实时价格信息 - 固定高度避免跳动 */}
+        {selectedToToken && (
+          <div className="p-3 bg-muted/50 rounded-lg space-y-2 min-h-[80px]">
+            {realtimePrice.isLoading && !realtimePrice.price ? (
+              // 首次加载骨架屏
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-16 bg-muted animate-pulse rounded" />
+                  <div className="h-4 w-32 bg-muted animate-pulse rounded" />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="h-3 w-20 bg-muted animate-pulse rounded" />
+                  <div className="h-3 w-24 bg-muted animate-pulse rounded" />
+                </div>
+              </div>
+            ) : realtimePrice.price ? (
+              // 价格信息
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">实时价格</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">
+                      ${Number(realtimePrice.price).toFixed(8)}
+                    </span>
+                    {realtimePrice.priceChange24h && (
+                      <Badge
+                        variant={Number(realtimePrice.priceChange24h) >= 0 ? 'default' : 'destructive'}
+                        className="text-xs"
+                      >
+                        {Number(realtimePrice.priceChange24h) >= 0 ? (
+                          <TrendingUp className="h-3 w-3 mr-1" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3 mr-1" />
+                        )}
+                        {Number(realtimePrice.priceChange24h).toFixed(2)}%
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                {realtimePrice.volume24h && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">24h 交易量</span>
+                    <span>${Number(realtimePrice.volume24h).toLocaleString()}</span>
+                  </div>
+                )}
+              </>
+            ) : realtimePrice.error ? (
+              // 错误提示
+              <div className="text-xs text-muted-foreground">
+                {realtimePrice.error}
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* 最近成交记录 */}
+        {selectedToToken && realtimePrice.recentTrades.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">最近成交</label>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500" />
+                  买入
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  卖出
+                </span>
+              </div>
+            </div>
+            <ScrollArea className="h-32 w-full border rounded-lg">
+              <div className="p-2 space-y-1">
+                {realtimePrice.recentTrades.slice(0, 10).map((trade, index) => {
+                  // m = false 表示买方主动成交（买入），显示绿色
+                  // m = true 表示卖方主动成交（卖出），显示红色
+                  const isBuy = !trade.m
+                  return (
+                    <div
+                      key={`${trade.a}-${index}`}
+                      className="flex items-center justify-between text-xs py-1 hover:bg-muted/50 rounded px-2"
+                    >
+                      <span className="text-muted-foreground w-16">
+                        {dayjs(trade.T).format('HH:mm:ss')}
+                      </span>
+                      <span
+                        className={`font-medium w-28 text-right ${
+                          isBuy ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                        }`}
+                      >
+                        ${Number(trade.p).toFixed(8)}
+                      </span>
+                      <span className="text-muted-foreground w-20 text-right">
+                        {Number(trade.q).toFixed(2)}
+                      </span>
+                      <span
+                        className={`w-8 text-xs font-medium ${
+                          isBuy ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                        }`}
+                      >
+                        {isBuy ? '买' : '卖'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
 
         {/* 滑点设置 */}
         <div className="space-y-2">
