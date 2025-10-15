@@ -31,7 +31,9 @@ export default async function RootLayout({
             className="flex justify-center"
             offset={{ top: '12px' }}
             mobileOffset={{ top: '8px' }}
-            toastOptions={{ style: { width: 'fit-content', margin: '0 auto' } }}
+            toastOptions={{ 
+              style: { width: 'fit-content', margin: '0 auto' },
+            }}
           />
         </Providers>
       </body>

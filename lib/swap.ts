@@ -36,7 +36,7 @@ const BINANCE_PROXY_ROUTER_ABI = [
     stateMutability: 'payable',
   },
   {
-    name: 'proxySwapV2',
+    name: 'proxySwapV2', // 方法ID: 0xe5e8894b
     type: 'function',
     inputs: [
       { name: 'router', type: 'address' },
@@ -54,14 +54,18 @@ const BINANCE_PROXY_ROUTER_ABI = [
 /**
  * 构建代币授权交易
  */
-export function buildApproveTransaction(tokenAddress: Hex, amount: bigint): {
+export function buildApproveTransaction(
+  tokenAddress: Hex, 
+  amount: bigint, 
+  spenderAddress: Hex = BN_DEX_ROUTER_ADDRESS
+): {
   to: Hex
   data: Hex
 } {
   const data = encodeFunctionData({
     abi: erc20Abi,
     functionName: 'approve',
-    args: [BN_DEX_ROUTER_ADDRESS, amount],
+    args: [spenderAddress, amount],
   })
 
   return {
@@ -120,8 +124,18 @@ function buildPancakeSwapCallData({
   to: Hex
   deadline: bigint
 }): Hex {
-  // 构造交易路径
-  const path = [fromToken, toToken]
+  // 构造交易路径，参照合约中的 _getPath 函数
+  let path: Hex[]
+  
+  // 如果涉及 BNB，需要通过 WBNB 作为中间代币
+  if (fromToken.toLowerCase() === WBNB_ADDRESS.toLowerCase() || 
+      toToken.toLowerCase() === WBNB_ADDRESS.toLowerCase()) {
+    // 直接交换，不需要中间代币
+    path = [fromToken, toToken]
+  } else {
+    // 对于其他代币，也使用直接路径（参照合约实现）
+    path = [fromToken, toToken]
+  }
 
   // 编码 PancakeSwap 调用数据
   return encodeFunctionData({
@@ -200,8 +214,8 @@ export function buildSwapTransaction({
 }
 
 /**
- * 使用真实的链上交易数据格式构建交易
- * 基于您提供的实际交易数据
+ * 参照 AtomicSwap 合约构建简易交易
+ * 只实现单次交换，不要求原子化
  */
 export function buildRealSwapTransaction({
   fromToken,
@@ -229,39 +243,43 @@ export function buildRealSwapTransaction({
   // 计算实际最小返回金额（考虑滑点）
   const minReturnWithSlippage = (minReturn * BigInt(Math.floor((100 - slippage) * 100))) / 10000n
 
-  // 设置截止时间（20分钟后）
+  // 设置截止时间（20分钟后，参照合约中的 DEADLINE_DURATION）
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60)
 
-  // 构造简化的 callData（直接使用 PancakeSwap 格式）
+  // 构造 PancakeSwap 调用数据，参照合约第95-102行的 firstSwapData
   const callData = buildPancakeSwapCallData({
     fromToken,
     toToken,
     fromAmount: amount,
     minReturnAmount: minReturnWithSlippage,
-    to: BN_DEX_ROUTER_ADDRESS,
+    to: BN_DEX_ROUTER_ADDRESS, // 接收者地址
     deadline,
   })
 
-  // 使用真实的方法ID 0x810c705b
+  // 使用 proxySwapV2 方法，参照合约第105-112行
   const data = encodeFunctionData({
     abi: BINANCE_PROXY_ROUTER_ABI,
-    functionName: 'swap',
+    functionName: 'proxySwapV2',
     args: [
-      BINANCE_ACTUAL_ROUTER_ADDRESS, // 币安实际使用的路由器
-      fromToken,                     // 源代币
-      toToken,                       // 目标代币
-      amount,                        // 输入金额
-      minReturnWithSlippage,         // 最小返回
-      callData,                      // 调用数据
+      PANCAKESWAP_V2_ROUTER_ADDRESS,           // router: PancakeSwap 路由器地址
+      BigInt(fromToken),                       // fromTokenWithFee: 源代币地址转换为 uint256
+      amount,                                  // fromAmt: 输入金额
+      BigInt(toToken),                         // toTokenWithFee: 目标代币地址转换为 uint256
+      minReturnWithSlippage,                   // minReturnAmt: 最小返回金额
+      callData,                                // callData: PancakeSwap 调用数据
     ],
   })
+
+  // 如果是 BNB 交易，需要发送 value，参照合约第70行和第105行
+  const value = fromToken.toLowerCase() === WBNB_ADDRESS.toLowerCase() ? amount : 0n
 
   return {
     to: BN_DEX_ROUTER_ADDRESS,
     data,
-    value: 0n,
+    value,
   }
 }
+
 
 /**
  * 检查代币授权额度

@@ -3,6 +3,7 @@
 import type { Hex } from 'viem'
 import { useEffect, useState } from 'react'
 import { useAccount, useConnect, useDisconnect } from 'wagmi'
+import { useAutoConnect, saveWalletConnection, clearWalletConnection } from '@/hooks/use-auto-connect'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,6 +21,23 @@ export default function WalletConnect() {
   const { address, isConnected } = useAccount()
   const { connect, connectors, isPending } = useConnect()
   const { disconnect } = useDisconnect()
+  
+  // 使用自动重连 Hook
+  const { isAutoConnecting } = useAutoConnect()
+
+  // 保存连接信息
+  const handleConnect = (connector: any) => {
+    connect({ connector })
+    setIsOpen(false)
+    // 保存最后连接的钱包信息
+    saveWalletConnection(connector.id)
+  }
+
+  // 断开连接时清除保存的信息
+  const handleDisconnect = () => {
+    disconnect()
+    clearWalletConnection()
+  }
 
   const copyToClipboard = () => {
     if (address) {
@@ -52,7 +70,7 @@ export default function WalletConnect() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => disconnect()}
+                onClick={handleDisconnect}
                 title="断开连接"
               >
                 <LogOut className="h-4 w-4" />
@@ -60,9 +78,15 @@ export default function WalletConnect() {
             </div>
           )
         : (
-            <Button onClick={() => setIsOpen(true)} variant="default">
+            <Button 
+              onClick={() => setIsOpen(true)} 
+              variant="default"
+              disabled={isAutoConnecting}
+            >
               <Wallet className="h-4 w-4" />
-              <span className="hidden md:inline ml-2">连接钱包</span>
+              <span className="hidden md:inline ml-2">
+                {isAutoConnecting ? '重连中...' : '连接钱包'}
+              </span>
             </Button>
           )}
 
@@ -95,10 +119,7 @@ export default function WalletConnect() {
               return (
                 <Button
                   key={connector.id}
-                  onClick={() => {
-                    connect({ connector })
-                    setIsOpen(false)
-                  }}
+                  onClick={() => handleConnect(connector)}
                   disabled={isPending}
                   variant="outline"
                   className="w-full justify-start text-left h-auto py-4"

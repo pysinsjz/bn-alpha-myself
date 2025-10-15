@@ -6,6 +6,7 @@ import {
   getTools,
   ChainType
 } from '@lifi/sdk'
+import { parseUnits } from 'viem'
 import type { Hex } from 'viem'
 
 // BSC 链 ID
@@ -56,6 +57,8 @@ export async function getLifiQuote({
       fromAddress: userAddress,
       slippage: slippage / 100, // 转换为小数
       order: 'CHEAPEST' as const, // 选择最便宜的路由
+      // 禁用跨链桥，强制使用同链交换
+      bridges: { allow: [], deny: [] },
     }
 
     const quote = await getQuote(quoteRequest)
@@ -81,12 +84,16 @@ export async function getLifiRoutes({
   amount,
   slippage = 0.5,
   userAddress,
+  allowExchanges = ['pancakeswap'],
+  order = 'CHEAPEST',
 }: {
   fromToken: Hex
   toToken: Hex
   amount: string
   slippage?: number
   userAddress: Hex
+  allowExchanges?: string[]
+  order?: 'CHEAPEST' | 'FASTEST' | 'SAFEST'
 }): Promise<LifiRoute[] | null> {
   try {
     const routeRequest = {
@@ -97,8 +104,11 @@ export async function getLifiRoutes({
       fromAmount: amount,
       fromAddress: userAddress,
       slippage: slippage / 100,
-      order: 'CHEAPEST' as const,
+      order: order,
+      allowExchanges: allowExchanges,
       maxPriceImpact: 0.5, // 最大价格影响 0.5%
+      // 禁用跨链桥，强制使用同链交换
+      bridges: { allow: [], deny: [] },
     }
 
     const routes = await getRoutes(routeRequest)
@@ -179,10 +189,17 @@ export async function getAvailableTools(): Promise<any | null> {
  * 格式化金额为 LI.FI API 格式
  */
 export function formatAmountForLifi(amount: string, decimals: number): string {
-  // LI.FI 需要 wei 格式的金额
-  const amountFloat = parseFloat(amount)
-  const amountWei = Math.floor(amountFloat * Math.pow(10, decimals))
-  return amountWei.toString()
+  try {
+    // 使用 viem 的 parseUnits 来正确处理精度
+    const amountWei = parseUnits(amount, decimals)
+    return amountWei.toString()
+  } catch (error) {
+    console.error('格式化金额失败:', error)
+    // 如果 parseUnits 失败，回退到原来的方法
+    const amountFloat = parseFloat(amount)
+    const amountWei = Math.floor(amountFloat * Math.pow(10, decimals))
+    return amountWei.toString()
+  }
 }
 
 /**
