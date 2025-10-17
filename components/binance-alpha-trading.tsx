@@ -104,7 +104,7 @@ export default function BinanceAlphaTrading() {
   const getQuantityPrecision = useCallback((price: number): number => {
     // 如果价格小于 0.0001，精度是 0（整数）
     // 如果价格大于等于 0.0001，精度是 4（4位小数）
-    return price < 0.0001 ? 0 : 4
+    return price < 0.0001 ? 0 : price < 1 ? 2 : 4
   }, [])
 
   const handlePriceClick = useCallback((price: string) => {
