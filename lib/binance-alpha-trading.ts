@@ -105,9 +105,10 @@ export interface CancelOrderResponse {
 
 /**
  * 币安 Alpha 交易服务类
+ * 通过服务端 API 代理，避免跨域问题
  */
 export class BinanceAlphaTradingService {
-  private baseUrl = 'https://www.binance.com/bapi/asset/v1/private/alpha-trade'
+  private baseUrl = '/api/alpha-trading'
   private csrfToken: string
   private cookies: string
 
@@ -126,13 +127,13 @@ export class BinanceAlphaTradingService {
 
   /**
    * 获取请求头
+   * 使用自定义 header 传递认证信息到服务端
    */
   private getHeaders() {
     return {
-      'clienttype': 'web',
-      'csrftoken': this.csrfToken,
-      'Cookie': this.cookies,
       'Content-Type': 'application/json',
+      'x-csrf-token': this.csrfToken,
+      'x-cookies': this.cookies,
     }
   }
 
@@ -209,7 +210,7 @@ export class BinanceAlphaTradingService {
    */
   async placeOrder(request: PlaceOrderRequest): Promise<PlaceOrderResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/oto-order/place`, {
+      const response = await fetch(`${this.baseUrl}/place-order`, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify(request),
@@ -238,7 +239,7 @@ export class BinanceAlphaTradingService {
    */
   async queryOrders(params: QueryOrdersRequest = {}): Promise<QueryOrdersResponse> {
     try {
-      const url = new URL(`${this.baseUrl}/oto-order/list`)
+      const url = new URL(`${this.baseUrl}/query-orders`, window.location.origin)
       
       // 添加查询参数
       Object.entries(params).forEach(([key, value]) => {
@@ -277,7 +278,7 @@ export class BinanceAlphaTradingService {
     try {
       const request: CancelOrderRequest = { orderId }
 
-      const response = await fetch(`${this.baseUrl}/oto-order/cancel`, {
+      const response = await fetch(`${this.baseUrl}/cancel-order`, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify(request),
@@ -306,7 +307,7 @@ export class BinanceAlphaTradingService {
    */
   async getOrderDetail(orderId: string): Promise<OrderInfo> {
     try {
-      const response = await fetch(`${this.baseUrl}/oto-order/detail?orderId=${orderId}`, {
+      const response = await fetch(`${this.baseUrl}/order-detail?orderId=${orderId}`, {
         method: 'GET',
         headers: this.getHeaders(),
       })
@@ -333,7 +334,7 @@ export class BinanceAlphaTradingService {
    */
   async getAccountBalance(): Promise<any> {
     try {
-      const response = await fetch(`${this.baseUrl}/account/balance`, {
+      const response = await fetch(`${this.baseUrl}/account-balance`, {
         method: 'GET',
         headers: this.getHeaders(),
       })
