@@ -102,34 +102,64 @@ export default function BinanceAlphaTrading() {
   }, [])
 
   /**
-   * 自动计算挂单数量（仅当支付金额改变时）
+   * 失焦时计算挂单数量（从支付金额计算）
+   */
+  const handlePaymentAmountBlur = useCallback(() => {
+    if (paymentAmount && orderPrice && Number(paymentAmount) > 0 && Number(orderPrice) > 0) {
+      const quantity = Number(paymentAmount) / Number(orderPrice)
+      const newQuantity = quantity.toFixed(6)
+      setOrderQuantity(newQuantity)
+      console.log(`支付金额失焦计算: ${paymentAmount} ÷ ${orderPrice} = ${newQuantity}`)
+    } else if (!orderPrice || Number(orderPrice) <= 0) {
+      toast.error('请先设置挂单价格')
+    }
+  }, [paymentAmount, orderPrice])
+
+  /**
+   * 失焦时计算支付金额（从挂单数量计算）
+   */
+  const handleOrderQuantityBlur = useCallback(() => {
+    if (orderQuantity && orderPrice && Number(orderQuantity) > 0 && Number(orderPrice) > 0) {
+      const amount = Number(orderQuantity) * Number(orderPrice)
+      const newAmount = amount.toFixed(6)
+      setPaymentAmount(newAmount)
+      console.log(`挂单数量失焦计算: ${orderQuantity} × ${orderPrice} = ${newAmount}`)
+    } else if (!orderPrice || Number(orderPrice) <= 0) {
+      toast.error('请先设置挂单价格')
+    }
+  }, [orderQuantity, orderPrice])
+
+  /**
+   * 快捷设置支付金额
+   */
+  const handleQuickAmountSelect = useCallback((amount: number) => {
+    setPaymentAmount(amount.toString())
+    // 如果有价格，立即计算数量
+    if (orderPrice && Number(orderPrice) > 0) {
+      const quantity = amount / Number(orderPrice)
+      const newQuantity = quantity.toFixed(6)
+      setOrderQuantity(newQuantity)
+      toast.success(`已设置支付金额 ${amount} ${quoteAsset}，数量 ${newQuantity}`)
+      console.log(`快捷选择计算: ${amount} ÷ ${orderPrice} = ${newQuantity}`)
+    } else {
+      toast.error('请先设置挂单价格')
+    }
+  }, [orderPrice, quoteAsset])
+
+  /**
+   * 当价格改变时，如果已有支付金额，自动重新计算挂单数量
    */
   useEffect(() => {
     if (paymentAmount && orderPrice && Number(paymentAmount) > 0 && Number(orderPrice) > 0) {
       const quantity = Number(paymentAmount) / Number(orderPrice)
       const newQuantity = quantity.toFixed(6)
-      // 避免不必要的更新
       if (orderQuantity !== newQuantity) {
         setOrderQuantity(newQuantity)
+        console.log(`价格变化，自动重新计算数量: ${paymentAmount} ÷ ${orderPrice} = ${newQuantity}`)
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentAmount, orderPrice])
-
-  /**
-   * 自动计算支付金额（当挂单数量和价格变化时）
-   */
-  useEffect(() => {
-    if (orderQuantity && orderPrice && Number(orderQuantity) > 0 && Number(orderPrice) > 0) {
-      const amount = Number(orderQuantity) * Number(orderPrice)
-      const newAmount = amount.toFixed(6)
-      // 避免不必要的更新
-      if (paymentAmount !== newAmount) {
-        setPaymentAmount(newAmount)
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderQuantity, orderPrice])
+  }, [orderPrice])
 
   // 初始化时设置默认代币（仅在代币列表首次加载时）
   useEffect(() => {
@@ -712,11 +742,17 @@ export default function BinanceAlphaTrading() {
                         placeholder="0.00"
                         value={orderQuantity}
                         onChange={(e) => setOrderQuantity(e.target.value)}
+                        onBlur={handleOrderQuantityBlur}
                         step="0.000001"
                       />
                       <div className="text-xs text-muted-foreground">
-                        根据支付金额和价格自动计算
+                        失焦后根据价格自动计算支付金额
                       </div>
+                      {orderQuantity && orderPrice && Number(orderQuantity) > 0 && Number(orderPrice) > 0 && (
+                        <div className="text-xs text-blue-600 dark:text-blue-400">
+                          预计支付: {(Number(orderQuantity) * Number(orderPrice)).toFixed(6)} {quoteAsset}
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-2">
@@ -726,10 +762,23 @@ export default function BinanceAlphaTrading() {
                         placeholder="0.00"
                         value={paymentAmount}
                         onChange={(e) => setPaymentAmount(e.target.value)}
+                        onBlur={handlePaymentAmountBlur}
                         step="0.000001"
                       />
-                      <div className="text-xs text-muted-foreground">
-                        设置后自动计算挂单数量
+                      <div className="flex items-center gap-2 flex-wrap mt-2">
+                        <span className="text-xs text-muted-foreground">快捷选择:</span>
+                        {[1, 10, 100, 1000].map((amount) => (
+                          <Button
+                            key={amount}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => handleQuickAmountSelect(amount)}
+                          >
+                            {amount}
+                          </Button>
+                        ))}
                       </div>
                     </div>
 
@@ -829,11 +878,17 @@ export default function BinanceAlphaTrading() {
                         placeholder="0.00"
                         value={orderQuantity}
                         onChange={(e) => setOrderQuantity(e.target.value)}
+                        onBlur={handleOrderQuantityBlur}
                         step="0.000001"
                       />
                       <div className="text-xs text-muted-foreground">
-                        出售的代币数量
+                        出售的代币数量，失焦后计算总金额
                       </div>
+                      {orderQuantity && orderPrice && Number(orderQuantity) > 0 && Number(orderPrice) > 0 && (
+                        <div className="text-xs text-green-600 dark:text-green-400">
+                          预计收入: {(Number(orderQuantity) * Number(orderPrice)).toFixed(6)} {quoteAsset}
+                        </div>
+                      )}
                     </div>
                   </div>
 
