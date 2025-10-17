@@ -74,7 +74,7 @@ export default function BinanceAlphaTrading() {
   const [orderPrice, setOrderPrice] = useState('')
   const [orderQuantity, setOrderQuantity] = useState('')
   const [paymentAmount, setPaymentAmount] = useState('')
-  const [paymentType, setPaymentType] = useState<'CARD' | 'BALANCE' | 'BANK'>('BALANCE')
+  const [paymentType, setPaymentType] = useState<'CARD' | 'BALANCE' | 'BANK'>('CARD')
 
   // 账户余额
   const [accountBalance, setAccountBalance] = useState<any>(null)
@@ -96,6 +96,17 @@ export default function BinanceAlphaTrading() {
   /**
    * 点击成交价格设置挂单价格
    */
+  /**
+   * 根据价格计算数量精度
+   * @param price 价格
+   * @returns 数量精度
+   */
+  const getQuantityPrecision = useCallback((price: number): number => {
+    // 如果价格小于 0.0001，精度是 0（整数）
+    // 如果价格大于等于 0.0001，精度是 4（4位小数）
+    return price < 0.0001 ? 0 : 4
+  }, [])
+
   const handlePriceClick = useCallback((price: string) => {
     setOrderPrice(price)
     toast.success(`已设置挂单价格为 ${price}`)
@@ -106,60 +117,112 @@ export default function BinanceAlphaTrading() {
    */
   const handlePaymentAmountBlur = useCallback(() => {
     if (paymentAmount && orderPrice && Number(paymentAmount) > 0 && Number(orderPrice) > 0) {
-      const quantity = Number(paymentAmount) / Number(orderPrice)
-      const newQuantity = quantity.toFixed(6)
-      setOrderQuantity(newQuantity)
-      console.log(`支付金额失焦计算: ${paymentAmount} ÷ ${orderPrice} = ${newQuantity}`)
+      const price = Number(orderPrice)
+      const quantity = Number(paymentAmount) / price
+      
+      // 根据价格动态计算数量精度
+      const quantityPrecision = getQuantityPrecision(price)
+      const formattedQuantity = parseFloat(quantity.toFixed(quantityPrecision))
+      setOrderQuantity(formattedQuantity.toString())
+      
+      // 使用格式化后的数量重新计算支付金额（8位小数）
+      const recalculatedAmount = (formattedQuantity * price).toFixed(8)
+      const trimmedAmount = parseFloat(recalculatedAmount).toString()
+      setPaymentAmount(trimmedAmount)
+      
+      console.log(`支付金额失焦计算: ${paymentAmount} ÷ ${price} = ${quantity}`)
+      console.log(`数量精度调整: ${quantity} -> ${formattedQuantity} (${quantityPrecision}位，价格${price < 0.0001 ? '<' : '>='}0.0001)`)
+      console.log(`支付金额调整: ${trimmedAmount}`)
     } else if (!orderPrice || Number(orderPrice) <= 0) {
       toast.error('请先设置挂单价格')
     }
-  }, [paymentAmount, orderPrice])
+  }, [paymentAmount, orderPrice, getQuantityPrecision])
 
   /**
    * 失焦时计算支付金额（从挂单数量计算）
    */
   const handleOrderQuantityBlur = useCallback(() => {
     if (orderQuantity && orderPrice && Number(orderQuantity) > 0 && Number(orderPrice) > 0) {
-      const amount = Number(orderQuantity) * Number(orderPrice)
-      const newAmount = amount.toFixed(6)
-      setPaymentAmount(newAmount)
-      console.log(`挂单数量失焦计算: ${orderQuantity} × ${orderPrice} = ${newAmount}`)
+      const price = Number(orderPrice)
+      const quantity = Number(orderQuantity)
+      
+      // 根据价格动态计算数量精度
+      const quantityPrecision = getQuantityPrecision(price)
+      const formattedQuantity = parseFloat(quantity.toFixed(quantityPrecision))
+      
+      // 如果格式化后的数量不同，更新显示
+      if (formattedQuantity !== quantity) {
+        setOrderQuantity(formattedQuantity.toString())
+        console.log(`数量精度调整: ${quantity} -> ${formattedQuantity} (${quantityPrecision}位，价格${price < 0.0001 ? '<' : '>='}0.0001)`)
+      }
+      
+      // 使用格式化后的数量计算支付金额（8 位小数）
+      const amount = formattedQuantity * price
+      const newAmount = amount.toFixed(8)
+      const trimmedAmount = parseFloat(newAmount).toString()
+      setPaymentAmount(trimmedAmount)
+      console.log(`挂单数量失焦计算: ${formattedQuantity} × ${price} = ${trimmedAmount}`)
     } else if (!orderPrice || Number(orderPrice) <= 0) {
       toast.error('请先设置挂单价格')
     }
-  }, [orderQuantity, orderPrice])
+  }, [orderQuantity, orderPrice, getQuantityPrecision])
 
   /**
    * 快捷设置支付金额
    */
   const handleQuickAmountSelect = useCallback((amount: number) => {
-    setPaymentAmount(amount.toString())
+    // 确保金额精度为 8 位
+    const formattedAmount = amount.toFixed(8)
+    const trimmedAmount = parseFloat(formattedAmount).toString()
+    setPaymentAmount(trimmedAmount)
+    
     // 如果有价格，立即计算数量
     if (orderPrice && Number(orderPrice) > 0) {
-      const quantity = amount / Number(orderPrice)
-      const newQuantity = quantity.toFixed(6)
-      setOrderQuantity(newQuantity)
-      toast.success(`已设置支付金额 ${amount} ${quoteAsset}，数量 ${newQuantity}`)
-      console.log(`快捷选择计算: ${amount} ÷ ${orderPrice} = ${newQuantity}`)
+      const price = Number(orderPrice)
+      const quantity = amount / price
+      
+      // 根据价格动态计算数量精度
+      const quantityPrecision = getQuantityPrecision(price)
+      const formattedQuantity = parseFloat(quantity.toFixed(quantityPrecision))
+      setOrderQuantity(formattedQuantity.toString())
+      
+      toast.success(`已设置支付金额 ${trimmedAmount} ${quoteAsset}，数量 ${formattedQuantity}`)
+      console.log(`快捷选择计算: ${trimmedAmount} ÷ ${price} = ${quantity}`)
+      console.log(`数量精度调整: ${quantity} -> ${formattedQuantity} (${quantityPrecision}位，价格${price < 0.0001 ? '<' : '>='}0.0001)`)
     } else {
       toast.error('请先设置挂单价格')
     }
-  }, [orderPrice, quoteAsset])
+  }, [orderPrice, quoteAsset, getQuantityPrecision])
 
   /**
    * 当价格改变时，如果已有支付金额，自动重新计算挂单数量
    */
   useEffect(() => {
     if (paymentAmount && orderPrice && Number(paymentAmount) > 0 && Number(orderPrice) > 0) {
-      const quantity = Number(paymentAmount) / Number(orderPrice)
-      const newQuantity = quantity.toFixed(6)
+      const price = Number(orderPrice)
+      const quantity = Number(paymentAmount) / price
+      
+      // 根据价格动态计算数量精度
+      const quantityPrecision = getQuantityPrecision(price)
+      const formattedQuantity = parseFloat(quantity.toFixed(quantityPrecision))
+      const newQuantity = formattedQuantity.toString()
+      
       if (orderQuantity !== newQuantity) {
         setOrderQuantity(newQuantity)
-        console.log(`价格变化，自动重新计算数量: ${paymentAmount} ÷ ${orderPrice} = ${newQuantity}`)
+        
+        // 使用格式化后的数量重新计算支付金额（8位小数）
+        const recalculatedAmount = (formattedQuantity * price).toFixed(8)
+        const trimmedAmount = parseFloat(recalculatedAmount).toString()
+        if (paymentAmount !== trimmedAmount) {
+          setPaymentAmount(trimmedAmount)
+        }
+        
+        console.log(`价格变化，重新计算: ${paymentAmount} ÷ ${price} = ${quantity}`)
+        console.log(`数量精度调整: ${quantity} -> ${formattedQuantity} (${quantityPrecision}位，价格${price < 0.0001 ? '<' : '>='}0.0001)，金额调整为 ${trimmedAmount}`)
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderPrice])
+  }, [orderPrice, getQuantityPrecision])
 
   // 初始化时设置默认代币（仅在代币列表首次加载时）
   useEffect(() => {
@@ -221,13 +284,56 @@ export default function BinanceAlphaTrading() {
       return
     }
 
+    const price = Number(orderPrice)
+    let quantity = Number(orderQuantity)
+    const inputAmount = Number(paymentAmount)
+
+    // 验证价格和数量
+    if (price <= 0 || quantity <= 0) {
+      toast.error('价格和数量必须大于0')
+      return
+    }
+
+    // 根据价格动态计算数量精度
+    const quantityPrecision = getQuantityPrecision(price)
+    const formattedQuantity = parseFloat(quantity.toFixed(quantityPrecision))
+    
+    // 使用格式化后的数量计算最终支付金额（8 位精度）
+    const calculatedAmount = price * formattedQuantity
+    const expectedAmount = parseFloat(calculatedAmount.toFixed(8))
+    
+    // 如果数量被矫正，直接使用重新计算的支付金额
+    if (formattedQuantity !== quantity) {
+      console.warn(`数量精度超标: ${quantity} -> ${formattedQuantity} (${quantityPrecision}位，价格${price < 0.0001 ? '<' : '>='}0.0001)`)
+      setOrderQuantity(formattedQuantity.toString())
+      quantity = formattedQuantity
+      
+      // 根据矫正后的数量重新计算支付金额，直接使用不需要验证
+      const trimmedAmount = parseFloat(expectedAmount.toFixed(8)).toString()
+      setPaymentAmount(trimmedAmount)
+      console.log(`数量矫正后重新计算支付金额: ${price} × ${formattedQuantity} = ${trimmedAmount}`)
+    } else {
+      // 数量未被矫正，验证支付金额是否与 price * quantity 匹配
+      const tolerance = 0.00000001 // 容差范围（8位精度）
+      
+      if (Math.abs(expectedAmount - inputAmount) > tolerance) {
+        console.warn(`支付金额不匹配: 期望 ${expectedAmount}, 实际 ${inputAmount}`)
+        toast.error(`支付金额不正确！应该是 ${expectedAmount.toFixed(8)} ${quoteAsset}`)
+        // 自动修正支付金额
+        setPaymentAmount(expectedAmount.toString())
+        return
+      }
+    }
+
     try {
+      console.log(`下买单: 代币=${selectedToken.symbol}, 价格=${price}, 数量精度=${quantityPrecision}位, 数量=${quantity}, 支付金额=${expectedAmount}(8位精度)`)
+      
       const result = await placeBuyOrder({
         token: selectedToken,
         quoteAsset,
-        price: Number(orderPrice),
-        quantity: Number(orderQuantity),
-        paymentAmount: Number(paymentAmount),
+        price,
+        quantity, // 使用格式化后的数量
+        paymentAmount: expectedAmount, // 使用8位精度的精确值
         paymentType,
       })
 
@@ -260,12 +366,39 @@ export default function BinanceAlphaTrading() {
       return
     }
 
+    const price = Number(orderPrice)
+    let quantity = Number(orderQuantity)
+
+    // 验证价格和数量
+    if (price <= 0 || quantity <= 0) {
+      toast.error('价格和数量必须大于0')
+      return
+    }
+
+    // 根据价格动态计算数量精度
+    const quantityPrecision = getQuantityPrecision(price)
+    const formattedQuantity = parseFloat(quantity.toFixed(quantityPrecision))
+    
+    // 使用格式化后的数量计算预计收入金额（8 位精度）
+    const calculatedAmount = price * formattedQuantity
+    const expectedAmount = parseFloat(calculatedAmount.toFixed(8))
+    
+    // 如果数量被矫正，更新显示
+    if (formattedQuantity !== quantity) {
+      console.warn(`数量精度超标: ${quantity} -> ${formattedQuantity} (${quantityPrecision}位，价格${price < 0.0001 ? '<' : '>='}0.0001)`)
+      setOrderQuantity(formattedQuantity.toString())
+      quantity = formattedQuantity
+      console.log(`数量矫正后预计收入: ${price} × ${formattedQuantity} = ${expectedAmount}`)
+    }
+
     try {
+      console.log(`下卖单: 代币=${selectedToken.symbol}, 价格=${price}, 数量精度=${quantityPrecision}位, 数量=${quantity}, 预计收入=${expectedAmount}(8位精度)`)
+      
       const result = await placeSellOrder({
         token: selectedToken,
         quoteAsset,
-        price: Number(orderPrice),
-        quantity: Number(orderQuantity),
+        price,
+        quantity, // 使用格式化后的数量
       })
 
       toast.success('卖单已提交')
@@ -789,8 +922,8 @@ export default function BinanceAlphaTrading() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="CARD">银行卡（默认）</SelectItem>
                           <SelectItem value="BALANCE">余额支付</SelectItem>
-                          <SelectItem value="CARD">银行卡</SelectItem>
                           <SelectItem value="BANK">银行转账</SelectItem>
                         </SelectContent>
                       </Select>

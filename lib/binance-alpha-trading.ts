@@ -147,6 +147,50 @@ export class BinanceAlphaTradingService {
   }
 
   /**
+   * 格式化金额到指定精度
+   * @param amount 原始金额
+   * @param precision 精度（小数位数）
+   * @returns 格式化后的金额字符串
+   */
+  private formatAmount(amount: number, precision: number): string {
+    // 使用 toFixed 限制小数位数，然后去除尾部的 0
+    const fixed = amount.toFixed(precision)
+    // 去除尾部无意义的 0，但保留至少一位小数
+    const trimmed = parseFloat(fixed).toString()
+    
+    // 如果是整数，确保有小数点
+    if (!trimmed.includes('.')) {
+      return `${trimmed}.0`
+    }
+    
+    return trimmed
+  }
+
+  /**
+   * 根据价格计算数量精度
+   * @param price 价格
+   * @returns 数量精度
+   */
+  private getQuantityPrecision(price: number): number {
+    // 如果价格小于 0.0001，精度是 0（整数）
+    // 如果价格大于等于 0.0001，精度是 4（4位小数）
+    return price < 0.0001 ? 0 : 4
+  }
+
+  /**
+   * 格式化数量到指定精度
+   * @param quantity 原始数量
+   * @param decimals 数量精度
+   * @returns 格式化后的数量（number 类型）
+   */
+  private formatQuantity(quantity: number, decimals: number): number {
+    // 先转换为固定精度的字符串
+    const fixed = quantity.toFixed(decimals)
+    // 再转换回数字，这样可以确保精度正确
+    return Number(fixed)
+  }
+
+  /**
    * 挂买单
    * @param params 下单参数
    */
@@ -160,15 +204,35 @@ export class BinanceAlphaTradingService {
   }): Promise<PlaceOrderResponse> {
     const alphaId = this.buildAlphaId(params.token)
     
+    // 根据价格动态计算数量精度
+    // 价格 < 0.0001 → 精度 0（整数）
+    // 价格 >= 0.0001 → 精度 4（4位小数）
+    const quantityPrecision = this.getQuantityPrecision(params.price)
+    
+    // 格式化数量到计算出的精度（四舍五入）
+    const formattedQuantity = this.formatQuantity(params.quantity, quantityPrecision)
+    
+    // 使用格式化后的数量重新计算支付金额
+    // 确保 paymentAmount 精确等于 price * quantity
+    const calculatedAmount = params.price * formattedQuantity
+    
+    // 根据报价资产确定金额精度（USDT/USDC 是 8 位）
+    const amountPrecision = params.quoteAsset === 'BNB' ? 8 : 8
+    
+    // 格式化金额到指定精度
+    const formattedAmount = this.formatAmount(calculatedAmount, amountPrecision)
+    
+    console.log(`下单参数: 代币=${params.token.symbol}, 价格=${params.price}, 数量精度=${quantityPrecision}位(价格${params.price < 0.0001 ? '<' : '>='}0.0001), 原始数量=${params.quantity}, 格式化数量=${formattedQuantity}, 金额=${formattedAmount}`)
+    
     const request: PlaceOrderRequest = {
       baseAsset: alphaId,
       quoteAsset: params.quoteAsset,
       workingSide: 'BUY',
       workingPrice: params.price,
-      workingQuantity: params.quantity,
+      workingQuantity: formattedQuantity, // 使用格式化后的数量
       paymentDetails: [{
-        amount: params.paymentAmount.toString(),
-        paymentWalletType: params.paymentType || 'BALANCE'
+        amount: formattedAmount,
+        paymentWalletType: params.paymentType || 'CARD'
       }],
       pendingPrice: params.price
     }
@@ -188,14 +252,33 @@ export class BinanceAlphaTradingService {
   }): Promise<PlaceOrderResponse> {
     const alphaId = this.buildAlphaId(params.token)
     
+    // 根据价格动态计算数量精度
+    // 价格 < 0.0001 → 精度 0（整数）
+    // 价格 >= 0.0001 → 精度 4（4位小数）
+    const quantityPrecision = this.getQuantityPrecision(params.price)
+    
+    // 格式化数量到计算出的精度（四舍五入）
+    const formattedQuantity = this.formatQuantity(params.quantity, quantityPrecision)
+    
+    // 使用格式化后的数量重新计算支付金额
+    const calculatedAmount = params.price * formattedQuantity
+    
+    // 根据报价资产确定金额精度
+    const amountPrecision = params.quoteAsset === 'BNB' ? 8 : 8
+    
+    // 格式化金额到指定精度
+    const formattedAmount = this.formatAmount(calculatedAmount, amountPrecision)
+    
+    console.log(`下单参数: 代币=${params.token.symbol}, 价格=${params.price}, 数量精度=${quantityPrecision}位(价格${params.price < 0.0001 ? '<' : '>='}0.0001), 原始数量=${params.quantity}, 格式化数量=${formattedQuantity}, 金额=${formattedAmount}`)
+    
     const request: PlaceOrderRequest = {
       baseAsset: alphaId,
       quoteAsset: params.quoteAsset,
       workingSide: 'SELL',
       workingPrice: params.price,
-      workingQuantity: params.quantity,
+      workingQuantity: formattedQuantity, // 使用格式化后的数量
       paymentDetails: [{
-        amount: (params.price * params.quantity).toString(),
+        amount: formattedAmount,
         paymentWalletType: 'BALANCE'
       }],
       pendingPrice: params.price
