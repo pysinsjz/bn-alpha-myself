@@ -39,6 +39,7 @@ export default function BinanceAlphaTrading() {
     placeBuyOrder,
     placeSellOrder,
     getAccountBalance,
+    tradingService,
   } = useBinanceAlphaTrading()
 
   const {
@@ -49,7 +50,7 @@ export default function BinanceAlphaTrading() {
     handleCancelOrder,
     getOrdersByStatus,
     getOrdersBySide,
-  } = useOrderManagement()
+  } = useOrderManagement(tradingService, isAuthenticated)
 
   // Alpha 代币列表
   const {
@@ -79,6 +80,7 @@ export default function BinanceAlphaTrading() {
   const [accountBalance, setAccountBalance] = useState<any>(null)
 
   // 实时成交数据
+  // 将更新频率从 1 秒改为 3 秒，减少 API 调用频率和内存占用
   const tradingPair = selectedToken ? `${selectedToken.alphaId}${quoteAsset}` : ''
   const {
     trades: realtimeTrades,
@@ -86,7 +88,7 @@ export default function BinanceAlphaTrading() {
     error: tradesError,
     lastUpdateTime,
     refresh: refreshTrades,
-  } = useRealtimeTrades(tradingPair, isAuthenticated && !!selectedToken, 1000, 20)
+  } = useRealtimeTrades(tradingPair, isAuthenticated && !!selectedToken, 3000, 20)
 
   // 成交数据统计
   const tradeStats = useTradeStats(realtimeTrades)
@@ -100,13 +102,18 @@ export default function BinanceAlphaTrading() {
   }, [])
 
   /**
-   * 自动计算挂单数量
+   * 自动计算挂单数量（仅当支付金额改变时）
    */
   useEffect(() => {
     if (paymentAmount && orderPrice && Number(paymentAmount) > 0 && Number(orderPrice) > 0) {
       const quantity = Number(paymentAmount) / Number(orderPrice)
-      setOrderQuantity(quantity.toFixed(6))
+      const newQuantity = quantity.toFixed(6)
+      // 避免不必要的更新
+      if (orderQuantity !== newQuantity) {
+        setOrderQuantity(newQuantity)
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentAmount, orderPrice])
 
   /**
@@ -115,22 +122,29 @@ export default function BinanceAlphaTrading() {
   useEffect(() => {
     if (orderQuantity && orderPrice && Number(orderQuantity) > 0 && Number(orderPrice) > 0) {
       const amount = Number(orderQuantity) * Number(orderPrice)
-      setPaymentAmount(amount.toFixed(6))
+      const newAmount = amount.toFixed(6)
+      // 避免不必要的更新
+      if (paymentAmount !== newAmount) {
+        setPaymentAmount(newAmount)
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderQuantity, orderPrice])
 
-  // 初始化时设置默认代币
+  // 初始化时设置默认代币（仅在代币列表首次加载时）
   useEffect(() => {
     if (alphaTokensList.length > 0 && !selectedToken) {
       setSelectedToken(alphaTokensList[0])
     }
-  }, [selectedToken, alphaTokensList])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alphaTokensList.length])
 
   // 当认证状态改变时，获取账户余额
   useEffect(() => {
     if (isAuthenticated) {
       handleGetAccountBalance()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
   /**

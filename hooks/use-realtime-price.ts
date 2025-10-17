@@ -15,12 +15,12 @@ interface RealtimePriceData {
  * 获取实时价格的 Hook
  * @param tokenAddress 代币合约地址
  * @param baseToken 基础代币符号（默认 USDC）
- * @param interval 更新间隔（毫秒，默认 1000）
+ * @param interval 更新间隔（毫秒，默认 3000ms，减少 API 调用频率）
  */
 export function useRealtimePrice(
   tokenAddress: string | undefined,
   baseToken: string = 'USDC',
-  interval: number = 1000,
+  interval: number = 3000,
 ): RealtimePriceData {
   const [price, setPrice] = useState<string | null>(null)
   const [priceChange24h, setPriceChange24h] = useState<string | null>(null)
@@ -58,7 +58,10 @@ export function useRealtimePrice(
 
         if (trades.length > 0) {
           setPrice(trades[0].p)
-          setRecentTrades(trades)
+          // 限制保存的交易数据数量，避免内存累积
+          // 只保留最近 20 条交易记录
+          const limitedTrades = trades.slice(0, 20)
+          setRecentTrades(limitedTrades)
 
           // 从本地数据中获取 24h 变化和交易量
           setPriceChange24h(alphaToken.percentChange24h)

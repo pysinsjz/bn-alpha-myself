@@ -8,7 +8,7 @@ import type { BinanceAggTrade } from '@/types/alpha'
 export function useRealtimeTrades(
   symbol: string,
   enabled: boolean = true,
-  interval: number = 1000, // 1秒
+  interval: number = 3000, // 3秒（降低更新频率以减少内存占用和 API 调用）
   limit: number = 20
 ) {
   const [trades, setTrades] = useState<BinanceAggTrade[]>([])
@@ -34,7 +34,10 @@ export function useRealtimeTrades(
       const newTrades = await getAggTrades(symbol, { limit })
       
       if (isMountedRef.current) {
-        setTrades(newTrades)
+        // 只保留最新的数据，避免累积过多历史数据
+        // 限制最大数量为 limit，防止内存泄漏
+        const limitedTrades = newTrades.slice(0, limit)
+        setTrades(limitedTrades)
         setLastUpdateTime(Date.now())
       }
     } catch (err: any) {
@@ -92,17 +95,13 @@ export function useRealtimeTrades(
     return () => {
       isMountedRef.current = false
       stopRealtimeUpdates()
-    }
-  }, [enabled, symbol, startRealtimeUpdates, stopRealtimeUpdates])
-
-  // 清理定时器
-  useEffect(() => {
-    return () => {
+      // 确保清理定时器
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
+        intervalRef.current = null
       }
     }
-  }, [])
+  }, [enabled, symbol, startRealtimeUpdates, stopRealtimeUpdates])
 
   return {
     trades,

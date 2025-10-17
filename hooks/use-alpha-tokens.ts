@@ -135,8 +135,8 @@ export function useAlphaTokens() {
     // 立即更新一次
     updateRemainingTime()
 
-    // 每秒更新一次
-    const interval = setInterval(updateRemainingTime, 1000)
+    // 每 10 秒更新一次（降低更新频率，减少不必要的重渲染）
+    const interval = setInterval(updateRemainingTime, 10000)
 
     return () => clearInterval(interval)
   }, [tokens.length, fetchTokensFromAPI])

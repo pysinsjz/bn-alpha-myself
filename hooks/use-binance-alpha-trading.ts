@@ -75,10 +75,11 @@ export function useBinanceAlphaTrading() {
     // 立即更新一次
     updateRemainingTime()
 
-    // 每秒更新一次
-    const interval = setInterval(updateRemainingTime, 1000)
+    // 每 5 秒更新一次（降低更新频率，减少不必要的重渲染）
+    const interval = setInterval(updateRemainingTime, 5000)
 
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
   /**
@@ -288,6 +289,7 @@ export function useBinanceAlphaTrading() {
     cookies,
     authRemainingTime,
     authRemainingTimeFormatted: formatRemainingTime(authRemainingTime),
+    tradingService,
 
     // 认证方法
     setAuth,
@@ -306,19 +308,18 @@ export function useBinanceAlphaTrading() {
 
 /**
  * 订单管理 Hook
+ * 注意：这个 Hook 需要 tradingService 作为参数，避免内部重复调用 useBinanceAlphaTrading
  */
-export function useOrderManagement() {
+export function useOrderManagement(tradingService: BinanceAlphaTradingService | null, isAuthenticated: boolean) {
   const [orders, setOrders] = useState<OrderInfo[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const { queryOrders, cancelOrder, isAuthenticated } = useBinanceAlphaTrading()
 
   /**
    * 刷新订单列表
    */
   const refreshOrders = useCallback(async (params: QueryOrdersRequest = {}) => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !tradingService) {
       setError('请先设置认证信息')
       return
     }
@@ -327,20 +328,23 @@ export function useOrderManagement() {
     setError(null)
 
     try {
-      const response = await queryOrders(params)
-      setOrders(response.data.orders)
+      const response = await tradingService.queryOrders(params)
+      // 限制订单数量，避免内存过度占用
+      // 只保留最新的 100 条订单
+      const limitedOrders = response.data.orders.slice(0, 100)
+      setOrders(limitedOrders)
     } catch (err: any) {
       setError(err.message)
     } finally {
       setIsLoading(false)
     }
-  }, [queryOrders, isAuthenticated])
+  }, [tradingService, isAuthenticated])
 
   /**
    * 取消订单
    */
   const handleCancelOrder = useCallback(async (orderId: string) => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !tradingService) {
       setError('请先设置认证信息')
       return
     }
@@ -349,7 +353,7 @@ export function useOrderManagement() {
     setError(null)
 
     try {
-      await cancelOrder(orderId)
+      await tradingService.cancelOrder(orderId)
       // 取消成功后刷新订单列表
       await refreshOrders()
     } catch (err: any) {
@@ -357,7 +361,7 @@ export function useOrderManagement() {
     } finally {
       setIsLoading(false)
     }
-  }, [cancelOrder, refreshOrders, isAuthenticated])
+  }, [tradingService, refreshOrders, isAuthenticated])
 
   /**
    * 根据状态过滤订单
