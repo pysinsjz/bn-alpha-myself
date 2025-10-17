@@ -214,8 +214,8 @@ export function buildSwapTransaction({
 }
 
 /**
- * 参照 AtomicSwap 合约构建简易交易
- * 只实现单次交换，不要求原子化
+ * 直接拼接交易数据 - 使用实际的方法选择器 0x810c705b
+ * 不依赖 ABI，直接按照实际交易数据格式拼接
  */
 export function buildRealSwapTransaction({
   fromToken,
@@ -243,40 +243,185 @@ export function buildRealSwapTransaction({
   // 计算实际最小返回金额（考虑滑点）
   const minReturnWithSlippage = (minReturn * BigInt(Math.floor((100 - slippage) * 100))) / 10000n
 
-  // 设置截止时间（20分钟后，参照合约中的 DEADLINE_DURATION）
+  // 设置截止时间（20分钟后）
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60)
 
-  // 构造 PancakeSwap 调用数据，参照合约第95-102行的 firstSwapData
+  // 构造 PancakeSwap 调用数据
   const callData = buildPancakeSwapCallData({
     fromToken,
     toToken,
     fromAmount: amount,
     minReturnAmount: minReturnWithSlippage,
-    to: BN_DEX_ROUTER_ADDRESS, // 接收者地址
+    to: BN_DEX_ROUTER_ADDRESS,
     deadline,
   })
 
-  // 使用 proxySwapV2 方法，参照合约第105-112行
-  const data = encodeFunctionData({
-    abi: BINANCE_PROXY_ROUTER_ABI,
-    functionName: 'proxySwapV2',
-    args: [
-      PANCAKESWAP_V2_ROUTER_ADDRESS,           // router: PancakeSwap 路由器地址
-      BigInt(fromToken),                       // fromTokenWithFee: 源代币地址转换为 uint256
-      amount,                                  // fromAmt: 输入金额
-      BigInt(toToken),                         // toTokenWithFee: 目标代币地址转换为 uint256
-      minReturnWithSlippage,                   // minReturnAmt: 最小返回金额
-      callData,                                // callData: PancakeSwap 调用数据
-    ],
+  // 使用 viem 编码，确保数据格式正确
+  const data = buildSwapDataWithViem({
+    router: BINANCE_ACTUAL_ROUTER_ADDRESS,
+    fromToken,
+    toToken,
+    fromAmount: amount,
+    toAmount: minReturnWithSlippage,
+    callData,
   })
 
-  // 如果是 BNB 交易，需要发送 value，参照合约第70行和第105行
+  // 如果是 BNB 交易，需要发送 value
   const value = fromToken.toLowerCase() === WBNB_ADDRESS.toLowerCase() ? amount : 0n
 
   return {
     to: BN_DEX_ROUTER_ADDRESS,
     data,
     value,
+  }
+}
+
+/**
+ * 直接拼接交易数据 - 不依赖 ABI
+ * 按照实际交易数据格式手动拼接
+ */
+function buildSwapDataDirect({
+  router,
+  fromToken,
+  toToken,
+  fromAmount,
+  toAmount,
+  callData,
+}: {
+  router: Hex
+  fromToken: Hex
+  toToken: Hex
+  fromAmount: bigint
+  toAmount: bigint
+  callData: Hex
+}): Hex {
+  // 方法选择器
+  const methodSelector = '0x810c705b'
+  
+  // 拼接参数 - 确保地址格式正确
+  const routerPadded = router.slice(2).toLowerCase().padStart(64, '0')
+  const fromTokenPadded = fromToken.slice(2).toLowerCase().padStart(64, '0')
+  const toTokenPadded = toToken.slice(2).toLowerCase().padStart(64, '0')
+  const fromAmountPadded = fromAmount.toString(16).padStart(64, '0')
+  const toAmountPadded = toAmount.toString(16).padStart(64, '0')
+  
+  // callData 偏移量 (6个参数 * 32字节 = 192字节 = 0xc0)
+  const callDataOffset = '00000000000000000000000000000000000000000000000000000000000000c0'
+  
+  // callData 长度
+  const callDataLength = (callData.length - 2) / 2 // 去掉 0x 前缀，转换为字节数
+  const callDataLengthPadded = callDataLength.toString(16).padStart(64, '0')
+  
+  // callData 内容
+  const callDataContent = callData.slice(2)
+  
+  // 拼接完整数据
+  const fullData = methodSelector + 
+    routerPadded + 
+    fromTokenPadded + 
+    toTokenPadded + 
+    fromAmountPadded + 
+    toAmountPadded + 
+    callDataOffset + 
+    callDataLengthPadded + 
+    callDataContent
+  
+  console.log('=== 数据拼接调试 ===')
+  console.log('方法选择器:', methodSelector)
+  console.log('router:', routerPadded)
+  console.log('fromToken:', fromTokenPadded)
+  console.log('toToken:', toTokenPadded)
+  console.log('fromAmount:', fromAmountPadded)
+  console.log('toAmount:', toAmountPadded)
+  console.log('callData 偏移量:', callDataOffset)
+  console.log('callData 长度:', callDataLengthPadded)
+  console.log('callData 内容:', callDataContent.slice(0, 20) + '...')
+  console.log('完整数据长度:', fullData.length)
+  
+  return fullData as Hex
+}
+
+/**
+ * 简化的数据拼接函数 - 使用 viem 的 encodeFunctionData
+ */
+function buildSwapDataWithViem({
+  router,
+  fromToken,
+  toToken,
+  fromAmount,
+  toAmount,
+  callData,
+}: {
+  router: Hex
+  fromToken: Hex
+  toToken: Hex
+  fromAmount: bigint
+  toAmount: bigint
+  callData: Hex
+}): Hex {
+  // 使用 viem 的 encodeFunctionData 来确保正确的编码
+  return encodeFunctionData({
+    abi: [{
+      name: 'swap',
+      type: 'function',
+      inputs: [
+        { name: 'router', type: 'address' },
+        { name: 'fromToken', type: 'address' },
+        { name: 'toToken', type: 'address' },
+        { name: 'fromAmount', type: 'uint256' },
+        { name: 'toAmount', type: 'uint256' },
+        { name: 'callData', type: 'bytes' },
+      ],
+      outputs: [],
+      stateMutability: 'payable',
+    }],
+    functionName: 'swap',
+    args: [router, fromToken, toToken, fromAmount, toAmount, callData],
+  })
+}
+
+/**
+ * 调试函数 - 验证构造的交易数据
+ */
+export function debugSwapData(data: Hex) {
+  console.log('=== 交易数据调试 ===')
+  console.log('数据长度:', data.length)
+  console.log('')
+  
+  const paramsData = data.slice(10)
+  
+  // 解析参数
+  const router = '0x' + paramsData.slice(24, 64)
+  const fromToken = '0x' + paramsData.slice(88, 128)
+  const toToken = '0x' + paramsData.slice(152, 192)
+  const fromAmount = BigInt('0x' + paramsData.slice(192, 256)).toString()
+  const toAmount = BigInt('0x' + paramsData.slice(256, 320)).toString()
+  const callDataOffset = parseInt(paramsData.slice(320, 384), 16)
+  const callDataLength = parseInt(paramsData.slice(384, 448), 16)
+  
+  console.log('参数解析:')
+  console.log('  router:', router)
+  console.log('  fromToken:', fromToken)
+  console.log('  toToken:', toToken)
+  console.log('  fromAmount:', fromAmount, '(wei)')
+  console.log('  toAmount:', toAmount, '(wei)')
+  console.log('  callData 偏移量:', callDataOffset)
+  console.log('  callData 长度:', callDataLength, '字节')
+  
+  // 解析 callData
+  const callDataStart = 448
+  const callData = paramsData.slice(callDataStart, callDataStart + callDataLength * 2)
+  console.log('  callData 方法选择器:', callData.slice(0, 10))
+  
+  return {
+    router,
+    fromToken,
+    toToken,
+    fromAmount,
+    toAmount,
+    callDataOffset,
+    callDataLength,
+    callDataMethodSelector: callData.slice(0, 10)
   }
 }
 

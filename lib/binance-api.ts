@@ -1,5 +1,5 @@
 import type { BinanceAggTrade, BinanceAlphaToken, BinanceApiResponse } from '@/types/alpha'
-import alphaTokensData from '@/constants/alpha_token.json'
+import alphaTokens from '@/constants/tokens'
 
 /**
  * 币安 Alpha API 基础 URL
@@ -10,8 +10,40 @@ const BINANCE_API_BASE = 'https://www.binance.com/bapi/defi/v1/public/alpha-trad
  * 获取所有 Alpha Token 列表
  */
 export function getAllAlphaTokens(): BinanceAlphaToken[] {
-  const response = alphaTokensData as BinanceApiResponse<BinanceAlphaToken[]>
-  return response.data || []
+  // 将 tokens.ts 中的代币信息转换为 BinanceAlphaToken 格式
+  return alphaTokens.map(token => ({
+    tokenId: token.contractAddress.slice(-6), // 使用合约地址后6位作为 tokenId
+    chainId: token.chainId,
+    chainIconUrl: '',
+    chainName: 'BSC',
+    contractAddress: token.contractAddress,
+    name: token.name,
+    symbol: token.symbol,
+    iconUrl: '',
+    price: '0',
+    percentChange24h: '0',
+    volume24h: '0',
+    marketCap: '0',
+    fdv: '0',
+    liquidity: '0',
+    totalSupply: '0',
+    circulatingSupply: '0',
+    holders: '0',
+    decimals: token.decimals,
+    listingCex: false,
+    hotTag: false,
+    cexCoinName: token.symbol,
+    canTransfer: true,
+    denomination: token.decimals,
+    offline: false,
+    tradeDecimal: token.decimals,
+    alphaId: `ALPHA_${token.contractAddress.slice(-6)}`,
+    offsell: false,
+    priceHigh24h: '0',
+    priceLow24h: '0',
+    onlineTge: false,
+    onlineAirdrop: false,
+  }))
 }
 
 /**
@@ -55,8 +87,8 @@ export async function getAggTrades(
     url.searchParams.append('startTime', params.startTime.toString())
   if (params?.endTime)
     url.searchParams.append('endTime', params.endTime.toString())
-  if (params?.limit)
-    url.searchParams.append('limit', params.limit.toString())
+  // if (params?.limit)
+  //   url.searchParams.append('limit', params.limit.toString())
 
   try {
     const response = await fetch(url.toString())
@@ -105,5 +137,48 @@ export async function getLatestPrice(symbol: string): Promise<string | null> {
  */
 export function buildTradingPair(alphaId: string, baseToken: string = 'USDC'): string {
   return `${alphaId}${baseToken}`
+}
+
+/**
+ * 获取所有 Alpha 代币列表（从币安 API）
+ */
+export async function fetchAlphaTokensFromAPI(): Promise<BinanceAlphaToken[]> {
+  try {
+    const response = await fetch('https://www.binance.com/bapi/defi/v1/public/wallet-direct/buw/wallet/cex/alpha/all/token/list')
+    
+    if (!response.ok) {
+      throw new Error(`获取 Alpha 代币列表失败: ${response.status} ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    
+    if (data.code !== '000000') {
+      throw new Error(`获取 Alpha 代币列表失败: ${data.message || '未知错误'}`)
+    }
+
+    return data.data || []
+  } catch (error) {
+    console.error('获取 Alpha 代币列表失败:', error)
+    throw error
+  }
+}
+
+/**
+ * 按24小时交易额排序 Alpha 代币
+ * @param tokens Alpha 代币列表
+ * @param limit 返回数量限制
+ */
+export function sortTokensByVolume24h(tokens: BinanceAlphaToken[], limit: number = 100): BinanceAlphaToken[] {
+  return tokens
+    .filter(token => {
+      // 过滤掉离线的代币
+      return !token.offline
+    })
+    .sort((a, b) => {
+      const volumeA = parseFloat(a.volume24h || '0')
+      const volumeB = parseFloat(b.volume24h || '0')
+      return volumeB - volumeA // 降序排列
+    })
+    .slice(0, limit)
 }
 
